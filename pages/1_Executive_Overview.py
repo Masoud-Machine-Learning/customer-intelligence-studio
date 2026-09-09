@@ -1,0 +1,198 @@
+"""Executive Overview - headline KPIs, trends and automated findings."""
+
+from __future__ import annotations
+
+import streamlit as st
+
+from src.analytics.insights import build_executive_brief, generate_insights
+from src.analytics.kpis import (
+    HEADLINE_KPIS,
+    METRICS,
+    compare_periods,
+    metrics_by_dimension,
+    population_summary,
+)
+from src.analytics.trends import add_rolling, fill_calendar, time_series
+from src.ui import charts, components as ui
+from src.ui.filters import render_filters
+from src.ui.state import active_source
+
+ui.configure_page("Executive Overview")
+
+source = active_source()
+filters = render_filters(source)
+
+ui.page_header(
+    "Executive Overview",
+    "Headline performance for the selected population, compared with the preceding "
+    "period of equal length.",
+)
+
+summary = population_summary(source, filters)
+ui.population_banner(summary, filters.describe())
+
+if summary["journeys"] == 0:
+    ui.footer()
+    st.stop()
+
+kpis = compare_periods(source, filters, HEADLINE_KPIS)
+ui.kpi_row(list(kpis.values()), columns=3)
+
+# ---------------------------------------------------------------------------
+# Trends
+# ---------------------------------------------------------------------------
+
+ui.section("Trends", "Daily values with a 7-day rolling average.")
+
+daily = fill_calendar(
+    time_series(
+        source,
+        filters,
+        grain="day",
+        keys=("total_journeys", "avg_satisfaction", "on_time_performance", "avg_delay_minutes"),
+    ),
+    grain="day",
+)
+
+metric_choice = st.radio(
+    "Trend metric",
+    ["Journeys", "Satisfaction", "On-time performance", "Average delay"],
+    horizontal=True,
+    label_visibility="collapsed",
+    key="overview_trend_metric",
+)
+column_map = {
+    "Journeys": ("total_journeys", "Journeys per day", ",.0f"),
+    "Satisfaction": ("avg_satisfaction", "Mean score (1-5)", ",.2f"),
+    "On-time performance": ("on_time_performance", "On-time %", ",.1f"),
+    "Average delay": ("avg_delay_minutes", "Minutes", ",.2f"),
+}
+column, axis_title, number_format = column_map[metric_choice]
+
+if daily.empty:
+    ui.empty_state("No daily data for this selection.")
+else:
+    daily = add_rolling(daily, column, window=7)
+    st.plotly_chart(
+        charts.line_chart(
+            daily,
+            x="period",
+            y=column,
+            overlay=f"{column}_rolling",
+            y_title=axis_title,
+            hover_format=number_format,
+            height=300,
+        ),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
+
+# ---------------------------------------------------------------------------
+# Breakdowns
+# ---------------------------------------------------------------------------
+
+ui.section("Where performance differs")
+
+left, right = st.columns(2, gap="large")
+
+with left:
+    by_mode = metrics_by_dimension(source, filters, "transport_mode")
+    if by_mode.empty:
+        ui.empty_state("No mode-level data for this selection.")
+    else:
+        st.plotly_chart(
+            charts.bar_chart(
+                by_mode.sort_values("total_journeys", ascending=False),
+                x="dimension_value",
+                y="total_journeys",
+                title="Journeys by transport mode",
+                y_title="Journeys",
+                value_format=",.0f",
+                height=270,
+            ),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+with right:
+    by_region = metrics_by_dimension(source, filters, "region")
+    if by_region.empty:
+        ui.empty_state("No regional data for this selection.")
+    else:
+        st.plotly_chart(
+            charts.bar_chart(
+                by_region.sort_values("on_time_performance"),
+                x="dimension_value",
+                y="on_time_performance",
+                title="On-time performance by region",
+                y_title="On-time %",
+                horizontal=True,
+                value_format=",.1f",
+                height=270,
+            ),
+            use_container_width=True,
+            config={"displayModeBar": False},
+        )
+
+by_segment = metrics_by_dimension(source, filters, "customer_segment")
+if not by_segment.empty:
+    st.plotly_chart(
+        charts.grouped_bar_chart(
+            by_segment,
+            x="dimension_value",
+            series=["avg_satisfaction", "complaint_rate"],
+            names=["Average satisfaction (1-5)", "Complaint rate (%)"],
+            title="Customer segments: satisfaction against complaint rate",
+            height=300,
+        ),
+        use_container_width=True,
+        config={"displayModeBar": False},
+    )
+
+# ---------------------------------------------------------------------------
+# Automated findings and brief
+# ---------------------------------------------------------------------------
+
+ui.section(
+    "Automated findings",
+    "Generated by deterministic analytics. Every statement is reproducible from the "
+    "figures behind it.",
+)
+
+insights = generate_insights(source, filters, limit=7)
+ui.insight_list(insights)
+
+with st.expander("Evidence behind these findings"):
+    st.json({item.key: item.evidence for item in insights}, expanded=False)
+
+ui.section("Executive brief")
+st.caption(
+    "Assembled from the same calculations. Available with or without an AI key; the "
+    "optional model only rewords the findings."
+)
+
+if st.button("Generate executive brief", type="primary"):
+    brief = build_executive_brief(source, filters, insights)
+    st.session_state["cis_brief"] = brief
+
+brief = st.session_state.get("cis_brief")
+if brief is not None:
+    st.markdown(brief.to_markdown())
+    export_left, export_right = st.columns(2)
+    with export_left:
+        st.download_button(
+            "Download as Markdown",
+            data=brief.to_markdown().encode("utf-8"),
+            file_name="executive-brief.md",
+            mime="text/markdown",
+        )
+    with export_right:
+        st.download_button(
+            "Download as text",
+            data=brief.to_text().encode("utf-8"),
+            file_name="executive-brief.txt",
+            mime="text/plain",
+        )
+
+ui.metric_help([METRICS[key] for key in HEADLINE_KPIS])
+ui.footer()

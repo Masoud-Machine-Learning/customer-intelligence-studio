@@ -1,0 +1,70 @@
+name: CI
+
+# This workflow assumes `customer-intelligence-studio/` is the repository root, which is
+# how the project is intended to be published and deployed (see README > Deployment).
+#
+# If you keep the project as a subfolder of a larger repository instead, GitHub only
+# reads workflows from the repository root, so move this file to
+# `<repo-root>/.github/workflows/ci.yml` and add:
+#
+#   defaults:
+#     run:
+#       working-directory: customer-intelligence-studio
+#
+# together with a `paths: ["customer-intelligence-studio/**"]` filter on the triggers.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  quality:
+    name: Lint and test (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Check formatting
+        run: ruff format --check .
+
+      - name: Run tests
+        run: pytest
+
+      - name: Verify the dataset builds and the database is queryable
+        run: |
+          python - <<'PY'
+          from src.data.database import ensure_demo_database, open_demo_database, row_counts
+          from src.data.generator import GenerationConfig
+
+          config = GenerationConfig(n_journeys=5_000, n_customers=800, history_days=120)
+          manifest = ensure_demo_database(config, force=True)
+          connection = open_demo_database()
+          counts = row_counts(connection)
+
+          assert counts["analysable_rows"] > 0, counts
+          assert counts["analysable_rows"] <= counts["raw_rows"], counts
+          print("manifest:", manifest)
+          print("row counts:", counts)
+          PY

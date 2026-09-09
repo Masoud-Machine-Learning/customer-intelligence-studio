@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Generated data - rebuilt deterministically on first run
+data/generated/
+*.duckdb
+*.duckdb.wal
+
+# Secrets. The parent repository ignores .env*, so .env.example is re-included here
+# because it contains no secrets and is part of the documentation.
+.env
+.env.*
+!.env.example
+.streamlit/secrets.toml
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

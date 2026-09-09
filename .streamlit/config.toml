@@ -1,0 +1,24 @@
+# Restrained, enterprise-analytics theme. Colours mirror src/utils/config.py::Palette
+# so the Streamlit chrome and the Plotly charts stay visually consistent.
+
+[theme]
+base = "light"
+primaryColor = "#1f6f8b"
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f7f9"
+textColor = "#16212b"
+font = "sans serif"
+
+[server]
+headless = true
+# CORS and XSRF protection are left at their secure defaults. Disabling CORS would let
+# any origin open a WebSocket to the app, and Streamlit warns about it on startup.
+enableXsrfProtection = true
+maxUploadSize = 200
+
+[browser]
+gatherUsageStats = false
+
+[client]
+showErrorDetails = false
+toolbarMode = "minimal"
